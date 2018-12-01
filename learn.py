@@ -37,6 +37,7 @@ skip_words_by_target = dict(es=[
 'kind',     # translated as tipo which is often wrong
 'look',     # mira - wrong when used as noun, or used in combinations like 'look after'?
 'way',      # camino - wrong when used as "the way I did it", etc?
+'fall',     # otono - wrong when used as in 'fall down'
 ])
 if target_language in skip_words_by_target:
     skip_words.extend(skip_words_by_target[target_language])
