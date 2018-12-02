@@ -31,14 +31,21 @@ cache = data.get('cache', {})
 if target_language not in cache:
     cache[target_language] = {}
 lookup = cache[target_language]
-skip_words = ['ll']
+skip_words = ['ll', 'don', 'can', 'isn', 'wouldn', 'haven', 'shouldn', 'didn',
+              ]
+
 skip_words_by_target = dict(es=[
-'sun',      # translated as Dom for 'domingo'=sunday
-'kind',     # translated as tipo which is often wrong
-'look',     # mira - wrong when used as noun, or used in combinations like 'look after'?
-'way',      # camino - wrong when used as "the way I did it", etc?
-'fall',     # otono - wrong when used as in 'fall down'
+    'sun',      # translated as Dom for 'domingo'=sunday
+    'kind',     # translated as tipo which is often wrong
+    'look',     # mira - wrong when used as noun, or used in combinations like 'look after'?
+    'way',      # camino - wrong when used as "the way I did it", etc?
+    'fall',     # otono - wrong when used as in 'fall down'
+    'saw',      # sierra
+    'lay',      # laico
+    'left',     # izquierda
+    'stout',    # cerveza negro
 ])
+
 if target_language in skip_words_by_target:
     skip_words.extend(skip_words_by_target[target_language])
 
