@@ -4,12 +4,14 @@ import shelve, string
 from time import time
 import sys, itertools
 from google.cloud import translate
+from collections import defaultdict, Counter
 
 """
 TODO: stop translating after N number of translations per text for same word, e.g. 50?
 """
 
 target_language = 'es'
+target_types = ['NN', 'NNS']
 argv=sys.argv
 del argv[0]
 if '-fr' in argv:
@@ -18,12 +20,26 @@ if '-fr' in argv:
 if '-ru' in argv:
     target_language = 'ru'
     argv.remove('-ru')
+if '-en' in argv:
+    target_language = 'en'
+    argv.remove('-en')
+if '-vbp' in argv:
+    target_types = ['VBP']
+if '-vb' in argv:
+    target_types = ['VB']
+if '-nns' in argv:
+    target_types = ['NNS']
+if '-jj' in argv:
+    target_types = ['JJ']
+test_mode = '-test' in argv
 
 quote = '’'
 start_quote = '‘'
 c_start = time()
 
 ch_name = argv[0]
+if ch_name.lower().endswith('.txt'):
+    ch_name = ch_name[:-4]
 chapter = open('%s.txt' % ch_name).read().split('\n\n')
 client = translate.Client()
 data = shelve.open('data')
@@ -31,7 +47,7 @@ cache = data.get('cache', {})
 if target_language not in cache:
     cache[target_language] = {}
 lookup = cache[target_language]
-skip_words = ['ll', 'don', 'can', 'isn', 'wouldn', 'haven', 'shouldn', 'didn',
+skip_words = ['ll', 'don', 'can', 'isn', 'wouldn', 'haven', 'shouldn', 'didn', 'doesn'
               ]
 
 skip_words_by_target = dict(es=[
@@ -44,20 +60,41 @@ skip_words_by_target = dict(es=[
     'lay',      # laico
     'left',     # izquierda
     'stout',    # cerveza negro
+    'door',     # por ??
+
+
+    # TEMP
+    # 'small','other','same','high','low','big','little','large'
 ])
 
 if target_language in skip_words_by_target:
     skip_words.extend(skip_words_by_target[target_language])
 
-n_cached = [0]
+n_cached_trans = [0,0]
+
+freq_table = Counter()
+
+def getitem(seq, n):
+    try: return seq[n]
+    except IndexError:
+        return None
+
 
 def make_trans_list(chapter):
     for n, par in enumerate(chapter):
-        # par = par.replace(quote, "'")
         text = nltk.word_tokenize(par)
         tups = nltk.pos_tag(text)
-        for w,tp in tups:
-            if tp=='NN' and w[0] in string.ascii_letters and w not in skip_words:
+        lst = []
+        for n, (w, tp) in enumerate(tups):
+            if test_mode and 100 <= n <= 120 and "'" in w:
+                print(w, tp)
+            next = getitem(tups, n+1)
+            if next and next[0] == "n't":
+                tp = 'IGNORE'
+            lst.append((w,tp))
+
+        for w,tp in lst:
+            if not test_mode and tp in target_types and w[0] in string.ascii_letters and w not in skip_words:
                 yield w
 
 def get_n_uncached(words, wdict, n=128):
@@ -68,22 +105,25 @@ def get_n_uncached(words, wdict, n=128):
         w = words.pop()
         if w in lookup:
             wdict[w] = lookup[w]
-            n_cached[0] += 1
+            n_cached_trans[0] += 1
+            freq_table[lookup[w]['translatedText']] += 1
         else:
             lst.append(w)
             n-=1
+            n_cached_trans[1] += 1
     return lst
 
 def translate(words):
     wdict = {}
     to_translate = []
-    n_cached = 0
 
     while 1:
         batch = get_n_uncached(words, wdict)
         if not batch:
             break
-        bdict = zip(batch, client.translate(batch, target_language=target_language))
+        bdict = dict(zip(batch, client.translate(batch, target_language=target_language)))
+        for w in bdict.values():
+            freq_table[w['translatedText']] += 1
         lookup.update(bdict)
         wdict.update(bdict)
     return wdict
@@ -96,12 +136,24 @@ def grouper(iterable, n, fillvalue=None):
 
 def main(chapter):
     words = list(make_trans_list(chapter))
+    if test_mode:
+        return
     lookup = translate(words)
 
     # with open('/Users/ak/projects/learnlang/%s.html' % ch_name, 'w') as fp:
-    with open('%s_%s.html' % (ch_name, target_language), 'w') as fp:
-        fp.write('''<html><body><style>
+    ttypes = '_'.join(target_types)
+    with open('%s_%s_%s.html' % (ch_name, target_language, ttypes), 'w') as fp:
+        fp.write('''<html>
+        <head>
+        <meta charset="UTF-8"/>
+        </head>
+        <body><style>
         .noun {color: hsl(120, 100%, 25%)}
+        .tooltip {
+            position: relative;
+            display: inline-block;
+            border-bottom: 0px dotted black;
+        }
         .tooltip .tooltiptext {
             visibility: hidden;
         }
@@ -117,6 +169,9 @@ def main(chapter):
             /* Position the tooltip text - see examples below! */
             position: absolute;
             z-index: 1;
+            bottom: 100%;
+            left: 50%;
+            margin-left: -60px; /* Use half of the width (120/2 = 60), to center the tooltip */
         }
         .tooltip:hover .tooltiptext {
             visibility: visible;
@@ -129,7 +184,7 @@ def main(chapter):
             text = [x for sl in text for x in sl]
             tups = [nltk.pos_tag(x) for x in text]
             tups = [x for sl in tups for x in sl]
-            print(tups[:5])
+            # print(tups[:5])
 
             out = []
             start = time()
@@ -150,7 +205,7 @@ def main(chapter):
                     pass
                     # out.append(' ')
 
-                if tp=='NN' and len(w)>1 and w[0] in string.ascii_letters:
+                if tp in target_types and len(w)>1 and w[0] in string.ascii_letters:
                     tpl = '<span class="tooltip noun">{}<span class="tooltiptext">{}</span></span>'
                     if w in lookup:
                         out.append(tpl.format(lookup[w]['translatedText'], w))
@@ -158,11 +213,15 @@ def main(chapter):
                         out.append(w)
                 else:
                     out.append(w)
-            fp.write('<p>' + ''.join(out).replace('&#39;', quote) + '</p>')
+            fp.write('<p>' + ''.join(out).replace('&#39;', quote).replace('``', '"').replace("''", '"') + '</p>')
             print('{}/{}  {}'.format(n+1, len(chapter), int(time()-start)))
         fp.write('</body></html>')
     print('total {}'.format(int(time()-c_start)))
     data['cache'] = cache
     data.close()
-    print("n_cached", n_cached)
+    print("n_cached_trans", n_cached_trans)
+    print('20 most common')
+    for word, n in freq_table.most_common(20):
+        print(n, '   ', word)
+
 main(chapter)
